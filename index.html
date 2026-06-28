@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#f6f3ec">
+<title>.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#f6f3ec;
+    overscroll-behavior:none;touch-action:none;-webkit-user-select:none;user-select:none;}
+  #c{display:block;position:fixed;inset:0;width:100%;height:100%;}
+  .hint{font-family:'Caveat',cursive;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(()=>{
+"use strict";
+
+/* ============================================================
+   "aquarela" — joguinho-presente. arquivo único, canvas 2D.
+   feito pra iphone (safari) e pc. tudo desenhado como a lápis
+   preto numa página em branco. textos no estilo dela.
+   ============================================================ */
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W=0, H=0, DPR=1;
+
+/* ---------- os textinhos (ordem da história) ---------- */
+const TEXTS = {
+  flor:
+"eu me recordo que uma vez marc chagall falou que na nossa vida há uma ou duas cores como na paleta de um artista que fornece o sentido da vida e da arte. é a cor do belo.\n\n"+
+"e creio que eu esteja presenciando um surto bicromático ao te ver em aquarelas preto e branco, feitas de propósito pra testar se você ficava simples em alguns tons não muito vibrantes. mas falha minha, isso foi impossível.\n\n"+
+"e dentre linhas e rabiscos é de se perceber que nem mesmo os pequenos tracejos do teu ser, seja de um sorriso que não enjoa seu do dia a dia ou seja dos teus vários traços de nascença, nunca alguém, seja quem for conseguiria replicar igualmente traços assim.",
+  olhos:
+"os olhos são descritos frequentemente como as janelas da alma, pois revelam o que as palavras tentam esconder como diria platão. eis que mil olhares falam mais do que mil palavras até, acho que seja por isso que tantos olhares te atraem. bocas tímidas o suficiente pra redirecionarem algo sobre você, e é por isso que mil te encaram mas pouquissimos possuem uma ousadia de dizer o que seus olhos entregam ( ainda bem! )"+
+"e você foi aprendendo a andar carregando todos esses olhos nas costas, como se precisasse passar num teste pra ter permissão de existir bonita, pois alguns destes na verdade são covardias ressaltante invejosamente sobre ti\n\n"+
+"o plot twist é que... só não terão o que veem, e falo em todos os aspectos de conquistas que você ainda conseguirá.\n\n"+
+"deixa eles olharem. continua andando.",
+  escada:
+"e aí apareceu essa escada.\n\n"+
+"tem um verso antigo que pede pra moça parar no degrau mais alto, se apoiar num vaso de jardim, e entrelaçar a luz do sol nos cabelos. e eu penso nele te vendo subir. você subiria essa escada pra sempre e sempre tem mais um degrau, mais uma ponta. verossimilmente te vejo melhorando a cada degrau em sua vida. e mesmo ainda não chegando lá, você já é alguém imprescindível e cheia de garra que vai deixar sua marca em cada canto."+
+"o alto não é um lugar pra se chegar. e você não precisa subir até lugar nenhum pra já ser tudo isso que você é.\n\n"+
+".",
+  floresta:
+"tá vendo tudo isso nascendo sozinho? as árvores, as flores, a mata inteira brotando por onde você passou  no mesmo traço preto e tremido que um dia desenhou você.\n\n"+
+"lembra que eu disse que te puseram em aquarela preto e branco, só pra testar se você ficava simples? pois é. a cor que faltava nunca esteve no mundo. estava em você esse tempo todo, esperando você caminhar um pouco pra poder exalar o que ja existia em você.\n\n"+
+"a verdade é que em um mundo sem graça, você tem a graça de ser um enorme colorido nesse mundo todo.\n\n"+
+"cada degrau que você subiu, cada olho que te encarou, cada tracinho de nascença que você um dia quis esconder  tudo isso virou raiz aqui. nada em você se perdeu pelo caminho.\n\n"+
+"você é um amontoado de floresta intenso, a mais bela dentre todas."
+};
+
+/* ---------- util ---------- */
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2;
+// hash inteiro -> [0,1) estável (pra jitter de desenho à mão)
+function hash(n){ n=(n^61)^(n>>>16); n=n+(n<<3); n=n^(n>>>4); n=Math.imul(n,0x27d4eb2d); n=n^(n>>>15); return ((n>>>0)%100000)/100000; }
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ---------- ink: linha tremida feita "à mão" ---------- */
+const INK='rgba(24,22,20,';
+function inkLine(x1,y1,x2,y2,w,a,seed){
+  seed=seed||0;
+  const mx=(x1+x2)/2, my=(y1+y2)/2;
+  const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy)||1;
+  const nx=-dy/len, ny=dx/len;
+  const j=(hash(seed*7+1)-0.5)*Math.min(3.2,len*0.10);
+  ctx.lineWidth=w; ctx.strokeStyle=INK+a+')';
+  ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.quadraticCurveTo(mx+nx*j, my+ny*j, x2,y2);
+  ctx.stroke();
+}
+// desenha uma polilinha revelando uma fração "prog" do comprimento total
+function sketchPoly(pts,w,a,prog,seed){
+  if(pts.length<2) return;
+  let total=0; const segs=[];
+  for(let i=0;i<pts.length-1;i++){const l=Math.hypot(pts[i+1].x-pts[i].x,pts[i+1].y-pts[i].y);segs.push(l);total+=l;}
+  let target=total*clamp(prog,0,1), acc=0;
+  for(let i=0;i<pts.length-1;i++){
+    if(acc>=target)break;
+    let l=segs[i], t=1;
+    if(acc+l>target){t=(target-acc)/l;}
+    const x2=lerp(pts[i].x,pts[i+1].x,t), y2=lerp(pts[i].y,pts[i+1].y,t);
+    inkLine(pts[i].x,pts[i].y,x2,y2,w,a,(seed||0)+i);
+    acc+=l;
+  }
+}
+
+/* ---------- sprite da menina ---------- */
+const sheet=new Image(); sheet.src='walk.png';
+let sheetOK=false; sheet.onload=()=>sheetOK=true;
+const FRAMES=8, FW=190, FH=275;  // folha de perfil (gpt) fatiada
+const SP_SCALE=0.46;             // tamanho dela na tela (relativo a 380px ref)
+const GA=0.72;                   // âncora do chão (mais pra baixo, dá espaço pro texto)
+// parada (ela.png recortada) e vídeo de introdução (ela sendo desenhada)
+const idleImg=new Image(); idleImg.src='ela_idle.png'; let idleOK=false; idleImg.onload=()=>idleOK=true;
+const introVid=document.createElement('video');
+introVid.src='ela.mp4'; introVid.muted=true; introVid.playsInline=true;
+introVid.setAttribute('playsinline',''); introVid.setAttribute('webkit-playsinline',''); introVid.preload='auto';
+let introDone=false;
+introVid.addEventListener('ended',()=>{introDone=true;});
+introVid.addEventListener('error',()=>{introDone=true;});
+
+/* ---------- áudio (musica.mp3 + rede de segurança sintetizada) ---------- */
+let audio=null, actx=null, muted=false, fallbackOn=false;
+function startAudio(){
+  try{
+    audio=new Audio('musica.mp3'); audio.loop=true; audio.preload='auto'; audio.volume=0.0;
+    const p=audio.play();
+    if(p&&p.catch) p.catch(()=>synthAmbient());
+    // fade in
+    let v=0; const fi=setInterval(()=>{v=Math.min(0.85,v+0.03); if(audio)audio.volume=muted?0:v; if(v>=0.85)clearInterval(fi);},90);
+    audio.addEventListener('error',synthAmbient,{once:true});
+  }catch(e){ synthAmbient(); }
+}
+function synthAmbient(){
+  if(fallbackOn) return; fallbackOn=true;
+  try{
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    const g=actx.createGain(); g.gain.value=muted?0:0.06; g.connect(actx.destination);
+    const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=620; lp.connect(g);
+    [110,164.8,220].forEach((f,i)=>{
+      const o=actx.createOscillator(); o.type='sine'; o.frequency.value=f;
+      const og=actx.createGain(); og.gain.value=0.5/(i+1); o.connect(og); og.connect(lp); o.start();
+      const lfo=actx.createOscillator(); lfo.frequency.value=0.05+i*0.02;
+      const lg=actx.createGain(); lg.gain.value=3; lfo.connect(lg); lg.connect(o.frequency); lfo.start();
+    });
+    window._ambGain=g;
+  }catch(e){}
+}
+function setMute(m){ muted=m; if(audio)audio.volume=m?0:0.85; if(window._ambGain)window._ambGain.gain.value=m?0:0.06; }
+
+/* ============================================================
+   ESTADO / HISTÓRIA
+   ============================================================ */
+const S={
+  phase:'start',
+  t:0,                       // tempo global
+  player:{x:0,y:0,dir:1,moving:false,anim:0},
+  camOffX:0, zoom:1,
+  moveDir:0,                 // -1,0,1 (input contínuo)
+  canMove:false,
+  anchorX:0,
+  // chão / escada
+  flatY:0, stairsStartX:Infinity, stairsEndX:Infinity,
+  // flor item
+  flower:null,
+  // olhos
+  eyes:[], eyesT:0, eyesAlpha:0,
+  // floresta
+  forest:null, forestStartX:0, paint:0, hintT:0,
+  // texto overlay
+  text:null,
+  // efeitos
+  started:false
+};
+
+function groundY(wx){
+  if(wx< S.stairsStartX) return S.flatY;
+  if(wx< S.stairsEndX)   return S.flatY - (wx-S.stairsStartX)*STAIR_SLOPE;
+  return S.flatY - (S.stairsEndX-S.stairsStartX)*STAIR_SLOPE;
+}
+const STAIR_SLOPE=0.46;
+const WALK_SPEED=92;          // px/seg no mundo
+const D1=540, D2=560, D3=520, D4=360;
+
+/* ---------- transições de fase ---------- */
+function begin(){
+  if(S.started) return; S.started=true;
+  startAudio();
+  S.flatY=0; S.player.x=0; S.player.y=0; S.anchorX=0;
+  // intro: ela sendo desenhada (ela.mp4) -> depois ela.png parada
+  S.canMove=false; S.phase='intro'; S.introT=0; introDone=false;
+  try{ introVid.currentTime=0; const p=introVid.play(); if(p&&p.catch)p.catch(()=>{introDone=true;}); }
+  catch(e){ introDone=true; }
+}
+function showText(key, opts){
+  opts=opts||{};
+  S.text={ full:TEXTS[key], shown:0, lines:null, total:0, scroll:0, maxScroll:0,
+           done:false, lockMove:!!opts.lockMove, onProceed:opts.onProceed||null,
+           noProceed:!!opts.noProceed };
+  wrapActiveText();
+  if(opts.lockMove) S.canMove=false;
+}
+function clearText(){ S.text=null; }
+
+function spawnFlower(){
+  const px=screenX(S.player.x), py=screenY(S.player.x);
+  S.flower={ // começa no alto-direita, plana até ela
+    sx:W*0.82, sy:-H*0.12, tx:px, ty:py-FH*SP_SCALE*0.55*S.zoom*relScale(),
+    p:0, prog:0, alpha:1, arrived:false, seed:(Math.random()*9999)|0
+  };
+  S.canMove=false;
+}
+function spawnEyes(){
+  S.eyes=[]; const n=6; const rnd=mulberry32(777);
+  for(let i=0;i<n;i++){
+    S.eyes.push({ fx:0.12+0.76*rnd(), fy:0.07+0.26*rnd(), size:42+rnd()*46,
+      delay:i*0.35+rnd()*0.3, open:0, seed:(rnd()*9999)|0 });
+  }
+  S.eyesT=0; S.eyesAlpha=0; S.phase='eyes';
+}
+function startStairs(){
+  S.stairsStartX=S.player.x+70; S.stairsEndX=Infinity; S.phase='stairs';
+}
+function startForest(){
+  S.canMove=false; S.player.moving=false;
+  S.forestStartX=S.player.x+70;
+  const rnd=mulberry32(2024); const trees=[]; const flowers=[];
+  const GREENS=['rgba(120,168,108,','rgba(150,190,138,','rgba(96,150,98,','rgba(170,196,132,'];
+  const WARMS=['rgba(240,196,110,','rgba(236,150,168,','rgba(245,176,132,','rgba(228,168,196,'];
+  for(let i=0;i<8;i++){
+    trees.push({ wx:S.forestStartX+i*135+rnd()*40, depth:0.7+rnd()*0.6,
+      seed:(rnd()*99999)|0, delay:i*0.28+rnd()*0.2, p:0,
+      col:GREENS[(rnd()*GREENS.length)|0],
+      segs:genTree((rnd()*99999)|0, rnd) });
+  }
+  for(let i=0;i<14;i++){
+    flowers.push({ wx:S.forestStartX-40+i*78+rnd()*40, depth:0.85+rnd()*0.4,
+      seed:(rnd()*99999)|0, delay:0.4+i*0.16+rnd()*0.2, p:0,
+      col:WARMS[(rnd()*WARMS.length)|0],
+      fl:genFlower((rnd()*99999)|0, 0.5+rnd()*0.4) });
+  }
+  // manchas de cor soltas no chão (textura de aquarela)
+  const splotches=[];
+  for(let i=0;i<10;i++){
+    splotches.push({ x:0.05+0.9*rnd(), y:0.66+0.3*rnd(), r:0.12+rnd()*0.18,
+      col:(rnd()<0.6?GREENS:WARMS)[(rnd()*4)|0], delay:0.2+rnd()*0.5, maxA:0.22+rnd()*0.18 });
+  }
+  S.forest={trees,flowers,splotches,t:0,dur:4.2};
+  S.paint=0;                 // 0 = preto-e-branco; 1 = totalmente colorido
+  S.phase='forest';
+}
+
+/* ============================================================
+   GEOMETRIAS DESENHADAS (flor, olho, árvore)
+   ============================================================ */
+function genFlower(seed,scale){
+  scale=scale||1; const rnd=mulberry32(seed);
+  const strokes=[];
+  const SH=34;                          // caule curto (antes era 70 = parecia cajado)
+  const cy=-SH;                         // centro do broto
+  // caule curto e levemente curvo
+  const stem=[]; for(let i=0;i<=6;i++){const t=i/6; stem.push({x:(Math.sin(t*1.7)*2.5)*scale, y:(8 - t*SH)*scale});}
+  strokes.push({pts:stem,w:1.6});
+  // folhinha
+  const lf=[]; for(let i=0;i<=6;i++){const t=i/6; lf.push({x:(t*12)*scale, y:(-9 - Math.sin(t*Math.PI)*7)*scale});}
+  strokes.push({pts:lf,w:1.3});
+  // pétalas: elipses orientadas em volta do miolo (forma de flor)
+  const np=6, R=15;
+  for(let k=0;k<np;k++){
+    const a0=(k/np)*TAU - Math.PI/2 + rnd()*0.15;
+    const imp=(k===2)?0.5:1;            // uma pétala que "não fechou"
+    const maj=R*0.78*scale, min=R*0.36*imp*scale;
+    const mx=Math.cos(a0)*R*0.6*scale, my=cy*scale+Math.sin(a0)*R*0.6*scale;
+    const pet=[];
+    for(let i=0;i<=12;i++){
+      const ang=i/12*TAU, lx=Math.cos(ang)*maj, ly=Math.sin(ang)*min;
+      const rx=lx*Math.cos(a0)-ly*Math.sin(a0), ry=lx*Math.sin(a0)+ly*Math.cos(a0);
+      pet.push({x:mx+rx+(rnd()-0.5)*1.0, y:my+ry+(rnd()-0.5)*1.0});
+    }
+    strokes.push({pts:pet,w:1.4});
+  }
+  // miolo
+  const core=[]; for(let i=0;i<=10;i++){const a=i/10*TAU; core.push({x:Math.cos(a)*4.5*scale, y:cy*scale+Math.sin(a)*4.5*scale});}
+  strokes.push({pts:core,w:1.4});
+  return strokes;
+}
+function genTree(seed,rndOuter){
+  const rnd=mulberry32(seed); const segs=[];
+  function branch(x,y,ang,len,depth){
+    const ex=x+Math.cos(ang)*len, ey=y+Math.sin(ang)*len;
+    segs.push({x1:x,y1:y,x2:ex,y2:ey,w:clamp(depth*0.9+0.7,0.8,3.4),blossom:false});
+    if(depth<=0){ if(rnd()<0.8) segs.push({x1:ex,y1:ey,x2:ex,y2:ey,w:0,blossom:true,bseed:(rnd()*9999)|0}); return; }
+    const spread=0.45+rnd()*0.35, nb=rnd()<0.35?3:2;
+    for(let i=0;i<nb;i++){
+      const off=(i-(nb-1)/2)*spread + (rnd()-0.5)*0.2;
+      branch(ex,ey,ang+off,len*(0.66+rnd()*0.12),depth-1);
+    }
+  }
+  branch(0,0,-Math.PI/2,46+rnd()*12,4);
+  return segs;
+}
+
+/* ============================================================
+   CÂMERA / PROJEÇÃO
+   ============================================================ */
+function relScale(){ return Math.min(W,H*0.62)/380; } // escala global p/ telas
+function screenX(wx){ return (wx-(S.player.x+S.camOffX))*S.zoom + W*0.5; }
+function screenY(wx){ return (groundY(wx)-groundY(S.player.x))*S.zoom + H*GA; }
+function screenXY(wx,wy){ return { x:(wx-(S.player.x+S.camOffX))*S.zoom + W*0.5,
+                                   y:(wy-groundY(S.player.x))*S.zoom + H*GA }; }
+
+/* ============================================================
+   INPUT
+   ============================================================ */
+const buttons={}; // {name:{x,y,r}} preenchido no draw, lido no pointer
+let pointer={down:false,x:0,y:0,onText:false,lastY:0,id:null};
+
+function hitBtn(name,px,py){const b=buttons[name]; if(!b)return false; return Math.hypot(px-b.x,py-b.y)<=b.r;}
+
+function pointerDown(px,py){
+  pointer.down=true; pointer.x=px; pointer.y=py; pointer.lastY=py; pointer.onText=false;
+  // start
+  if(S.phase==='start'){ if(hitBtn('start',px,py)) begin(); return; }
+  // intro: tocar pula
+  if(S.phase==='intro'){ introDone=true; return; }
+  // mute
+  if(hitBtn('mute',px,py)){ setMute(!muted); return; }
+  // proceed
+  if(S.text && S.text.done && !S.text.noProceed && hitBtn('proceed',px,py)){ doProceed(); return; }
+  // texto: rolar (área superior)
+  if(S.text && py<H*0.62){ pointer.onText=true; return; }
+  // andar (botões esquerda/direita), só se pode mover
+  if(S.canMove){
+    if(hitBtn('left',px,py)){ S.moveDir=-1; return; }
+    if(hitBtn('right',px,py)){ S.moveDir=1; return; }
+  }
+}
+function pointerMove(px,py){
+  if(!pointer.down) return;
+  if(pointer.onText && S.text){ S.text.scroll=clamp(S.text.scroll-(py-pointer.lastY),0,S.text.maxScroll); pointer.lastY=py; }
+  else if(S.canMove){
+    // permite arrastar entre os botões
+    if(hitBtn('left',px,py)) S.moveDir=-1;
+    else if(hitBtn('right',px,py)) S.moveDir=1;
+    else S.moveDir=0;
+  }
+  pointer.x=px; pointer.y=py;
+}
+function pointerUp(){ pointer.down=false; pointer.onText=false; S.moveDir=0; }
+
+cv.addEventListener('touchstart',e=>{e.preventDefault();const t=e.changedTouches[0];const r=cv.getBoundingClientRect();pointerDown(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();const t=e.changedTouches[0];const r=cv.getBoundingClientRect();pointerMove(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+cv.addEventListener('touchend',e=>{e.preventDefault();pointerUp();},{passive:false});
+cv.addEventListener('mousedown',e=>{const r=cv.getBoundingClientRect();pointerDown(e.clientX-r.left,e.clientY-r.top);});
+window.addEventListener('mousemove',e=>{const r=cv.getBoundingClientRect();pointerMove(e.clientX-r.left,e.clientY-r.top);});
+window.addEventListener('mouseup',pointerUp);
+cv.addEventListener('wheel',e=>{ if(S.text){S.text.scroll=clamp(S.text.scroll+e.deltaY,0,S.text.maxScroll);} },{passive:true});
+window.addEventListener('keydown',e=>{
+  if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A'){ if(S.canMove)S.moveDir=-1; }
+  else if(e.key==='ArrowRight'||e.key==='d'||e.key==='D'){ if(S.canMove)S.moveDir=1; }
+  else if(e.key==='Enter'||e.key===' '){
+    if(S.phase==='start') begin();
+    else if(S.phase==='intro') introDone=true;
+    else if(S.text&&S.text.done&&!S.text.noProceed) doProceed();
+  } else if(e.key==='ArrowUp'){ if(S.text)S.text.scroll=clamp(S.text.scroll-40,0,S.text.maxScroll); }
+  else if(e.key==='ArrowDown'){ if(S.text)S.text.scroll=clamp(S.text.scroll+40,0,S.text.maxScroll); }
+});
+window.addEventListener('keyup',e=>{ if(['ArrowLeft','ArrowRight','a','A','d','D'].includes(e.key)) S.moveDir=0; });
+
+function doProceed(){
+  const t=S.text; if(!t)return;
+  if(t.onProceed){ const cb=t.onProceed; clearText(); cb(); }
+  else clearText();
+}
+
+/* ============================================================
+   TEXTO (livro) — quebra + máquina de escrever
+   ============================================================ */
+let fontReady=false;
+if(document.fonts&&document.fonts.ready){document.fonts.ready.then(()=>{fontReady=true;wrapActiveText();});}
+function bookFont(px){ return (px)+"px 'Cormorant Garamond', Georgia, serif"; }
+function textFontPx(){ return clamp(W*0.048, 16, 25); }
+
+function wrapActiveText(){
+  const t=S.text; if(!t)return;
+  const fs=textFontPx(); ctx.font=bookFont(fs);
+  const maxW=Math.min(W*0.84, 600);
+  const paras=t.full.split('\n');
+  const lines=[]; let total=0;
+  for(const para of paras){
+    if(para===''){ lines.push({text:'',cum:total}); continue; }
+    const words=para.split(' '); let cur='';
+    for(const w of words){
+      const test=cur?cur+' '+w:w;
+      if(ctx.measureText(test).width>maxW && cur){ lines.push({text:cur,cum:total}); total+=cur.length+1; cur=w; }
+      else cur=test;
+    }
+    if(cur){ lines.push({text:cur,cum:total}); total+=cur.length+1; }
+  }
+  t.lines=lines; t.total=total;
+  const lh=fs*1.72;
+  const areaTop=H*0.07, areaBot=H*0.60;
+  const contentH=lines.length*lh;
+  t.maxScroll=Math.max(0, contentH-(areaBot-areaTop)+lh);
+  t._lh=lh; t._fs=fs; t._areaTop=areaTop; t._areaBot=areaBot;
+}
+function drawText(){
+  const t=S.text; if(!t||!t.lines)return;
+  const fs=t._fs, lh=t._lh;
+  ctx.save();
+  // máscara da área (pra rolagem)
+  ctx.beginPath(); ctx.rect(0,t._areaTop-fs, W, t._areaBot-t._areaTop+fs*1.2); ctx.clip();
+  ctx.font=bookFont(fs); ctx.fillStyle='rgba(22,20,18,0.92)';
+  ctx.textBaseline='alphabetic'; ctx.textAlign='center';
+  const shown=t.shown;
+  let y=t._areaTop+fs - t.scroll;
+  for(const ln of t.lines){
+    if(ln.text!==''){
+      let n=clamp(Math.floor(shown-ln.cum),0,ln.text.length);
+      if(n>0){
+        const str=ln.text.slice(0,n);
+        // leve tremor de "escrito à mão"
+        ctx.fillText(str, W*0.5 + (hash((ln.cum|0))-0.5)*1.2, y);
+        // cursor sutil enquanto digita esta linha
+        if(n<ln.text.length && !t.done){
+          const wpart=ctx.measureText(str).width;
+          ctx.globalAlpha=0.5+0.5*Math.sin(S.t*8);
+          ctx.fillRect(W*0.5+wpart/2+2, y-fs*0.72, 1.5, fs*0.78);
+          ctx.globalAlpha=1;
+        }
+      }
+    }
+    y+=lh;
+  }
+  ctx.restore();
+  // sombra de "fim de página" se dá pra rolar
+  if(t.maxScroll>4 && t.scroll<t.maxScroll-2){
+    const g=ctx.createLinearGradient(0,t._areaBot-26,0,t._areaBot+6);
+    g.addColorStop(0,'rgba(246,243,236,0)'); g.addColorStop(1,'rgba(246,243,236,0.95)');
+    ctx.fillStyle=g; ctx.fillRect(0,t._areaBot-26,W,34);
+  }
+}
+
+/* ============================================================
+   PARTÍCULAS DE AQUARELA (tinta negra no ar)
+   ============================================================ */
+const parts=[];
+function initParts(){
+  parts.length=0; const n=60;                 // muitas, bem pequenininhas
+  for(let i=0;i<n;i++){
+    parts.push({
+      x:Math.random(), y:Math.random(),
+      r:0.6+Math.random()*1.6,                 // pontinhos minúsculos (px)
+      vx:(Math.random()-0.5)*0.004,            // deriva lenta (por segundo)
+      vy:-0.008-Math.random()*0.012,           // sobem devagarinho
+      a:0.22+Math.random()*0.4,                // pretinhas
+      ph:Math.random()*TAU, sw:0.12+Math.random()*0.35,
+      amp:3+Math.random()*7                    // amplitude do "pairar" (px)
+    });
+  }
+}
+function drawParts(dt){
+  ctx.fillStyle='#1a1816';
+  for(const p of parts){
+    p.x+=p.vx*dt; p.y+=p.vy*dt;                 // deriva muito lenta
+    if(p.y<-0.05){p.y=1.05;p.x=Math.random();}
+    if(p.x<-0.05)p.x=1.05; if(p.x>1.05)p.x=-0.05;
+    // pairar suave em volta da posição (esporo flutuando)
+    const x=p.x*W + Math.sin(S.t*p.sw+p.ph)*p.amp;
+    const y=p.y*H + Math.cos(S.t*p.sw*0.8+p.ph)*p.amp*0.6;
+    const r=Math.max(0.6, p.r*relScale());
+    ctx.globalAlpha=p.a;
+    ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ============================================================
+   DESENHO DO MUNDO
+   ============================================================ */
+function paper(){
+  ctx.fillStyle='#f6f3ec'; ctx.fillRect(0,0,W,H);
+  // grão sutil
+  ctx.save(); ctx.globalAlpha=0.025;
+  for(let i=0;i<40;i++){ const x=hash(i*3+7)*W,y=hash(i*5+11)*H; ctx.fillStyle='#000'; ctx.fillRect(x,y,1,1);}
+  ctx.restore();
+  // vinheta levíssima
+  const g=ctx.createRadialGradient(W/2,H/2,H*0.3,W/2,H/2,H*0.8);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(60,50,40,0.06)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+function drawGround(){
+  const sc=relScale();
+  const py=H*GA;
+  // amostra o chão pela largura
+  const step=10;
+  const pts=[];
+  for(let sx=-20;sx<=W+20;sx+=step){
+    const wx=(sx-W*0.5)/S.zoom + (S.player.x+S.camOffX);
+    const sy=(groundY(wx)-groundY(S.player.x))*S.zoom + py;
+    pts.push({x:sx,y:sy,wx});
+  }
+  // linha do chão tremida
+  ctx.lineCap='round';
+  for(let i=0;i<pts.length-1;i++){
+    const seed=Math.floor(pts[i].wx/9);
+    inkLine(pts[i].x,pts[i].y+ (hash(seed)-0.5)*1.5, pts[i+1].x,pts[i+1].y,1.7*sc,0.5,seed);
+  }
+  // se está em escada: degraus decorativos
+  if(S.stairsStartX<Infinity){
+    const sw=38; // largura do degrau (mundo)
+    const xa=Math.max(S.stairsStartX, (0-W*0.5)/S.zoom+(S.player.x+S.camOffX)-sw);
+    const xb=Math.min((S.stairsEndX<Infinity?S.stairsEndX:1e9), (W-W*0.5)/S.zoom+(S.player.x+S.camOffX)+sw);
+    for(let wx=Math.ceil(xa/sw)*sw; wx<xb; wx+=sw){
+      const a=screenXY(wx,groundY(wx)), b=screenXY(wx+sw,groundY(wx+sw));
+      // piso + espelho do degrau
+      inkLine(a.x,a.y,b.x,a.y,1.4*sc,0.4,(wx|0)); // tread
+      inkLine(b.x,a.y,b.x,b.y,1.4*sc,0.4,(wx|0)+3); // riser
+    }
+  }
+}
+function drawPlayer(){
+  const sc=relScale()*SP_SCALE*S.zoom;
+  const x=W*0.5, y=H*GA;
+  if(S.player.moving && sheetOK){
+    // andando: folha de perfil (espelha pra esquerda)
+    const fi=Math.floor(S.player.anim)%FRAMES;
+    const dw=FW*sc, dh=FH*sc;
+    ctx.save(); ctx.translate(x,y);
+    if(S.player.dir<0) ctx.scale(-1,1);
+    ctx.drawImage(sheet, fi*FW,0,FW,FH, -dw/2,-dh, dw,dh);
+    ctx.restore();
+  } else if(idleOK){
+    // parada: ela.png (mesmo tamanho da figura andando), respiro suave
+    const ih=idleImg.naturalHeight||282, iw=idleImg.naturalWidth||124;
+    const dh=(FH-13)*sc, dw=dh*(iw/ih);
+    const bob=Math.sin(S.t*1.6)*1.2;
+    ctx.drawImage(idleImg, x-dw/2, y-dh+bob, dw, dh);
+  }
+}
+function drawIntroVideo(alpha){
+  const vw=introVid.videoWidth, vh=introVid.videoHeight;
+  if(!vw||!vh) return;
+  const scale=Math.min(W/vw, H/vh);   // contém o vídeo inteiro, centralizado
+  const dw=vw*scale, dh=vh*scale;
+  ctx.save();
+  // clareia o papel cinza do vídeo p/ casar com o papel branco do jogo
+  ctx.filter='brightness(1.62) contrast(1.18)';
+  ctx.globalAlpha=alpha;
+  ctx.drawImage(introVid, W*0.5-dw/2, H*0.5-dh/2, dw, dh);
+  ctx.restore();
+}
+function drawFlower(){
+  const f=S.flower; if(!f)return;
+  const x=lerp(f.sx,f.tx,f.p), y=lerp(f.sy,f.ty,f.p);
+  ctx.save(); ctx.globalAlpha=f.alpha; ctx.translate(x,y);
+  const sc=relScale()*1.0;
+  const strokes=genFlower(f.seed,1.0);
+  // revela progressivamente (sendo desenhada) enquanto plana
+  let nrev=strokes.length*f.prog;
+  for(let i=0;i<strokes.length;i++){
+    const local=clamp(nrev-i,0,1); if(local<=0)break;
+    const pts=strokes[i].pts.map(p=>({x:p.x*sc,y:p.y*sc}));
+    sketchPoly(pts,strokes[i].w*sc*0.8,0.85,local,f.seed+i*13);
+  }
+  ctx.restore();
+}
+function drawEye(e,baseAlpha){
+  const x=e.fx*W, y=e.fy*H, sz=e.size*relScale()*0.7;
+  const o=e.open; if(o<=0.01)return;
+  const a=baseAlpha;
+  ctx.save();
+  // contorno amêndoa (duas curvas) com abertura vertical = o
+  const half=sz*0.55, oy=sz*0.42*o;
+  ctx.strokeStyle=INK+a+')'; ctx.lineWidth=1.6*relScale(); ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x-half,y);
+  ctx.quadraticCurveTo(x,y-oy, x+half,y);
+  ctx.quadraticCurveTo(x,y+oy, x-half,y);
+  ctx.stroke();
+  if(o>0.45){
+    // olha pra ela (centro-baixo)
+    const lookx=clamp((W*0.5-x)/W*1.6,-1,1), looky=0.5;
+    const ix=x+lookx*sz*0.16, iy=y+looky*sz*0.10;
+    const ir=sz*0.22*Math.min(1,(o-0.45)/0.4);
+    ctx.beginPath(); ctx.arc(ix,iy,ir,0,TAU); ctx.stroke();
+    ctx.fillStyle=INK+(a)+')'; ctx.beginPath(); ctx.arc(ix,iy,ir*0.45,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawForest(){
+  const F=S.forest; if(!F)return;
+  const sc=relScale();
+  // árvores
+  for(const tr of F.trees){
+    const base=screenXY(tr.wx,groundY(tr.wx));
+    const tsc=tr.depth*S.zoom*sc*0.8;
+    const nrev=tr.segs.length*tr.p;
+    for(let i=0;i<tr.segs.length;i++){
+      const s=tr.segs[i]; const local=clamp(nrev-i,0,1); if(local<=0)break;
+      if(s.blossom){
+        if(local>0.5){ const bx=base.x+s.x2*tsc, by=base.y+s.y2*tsc;
+          ctx.fillStyle='rgba(24,22,20,0.5)'; ctx.beginPath(); ctx.arc(bx,by,2.4*sc,0,TAU); ctx.fill(); }
+        continue;
+      }
+      const x1=base.x+s.x1*tsc, y1=base.y+s.y1*tsc;
+      const x2=lerp(x1, base.x+s.x2*tsc, local), y2=lerp(y1, base.y+s.y2*tsc, local);
+      inkLine(x1,y1,x2,y2,Math.max(0.7,s.w*tsc*0.5),0.72,s.bseed||(i+tr.seed));
+    }
+  }
+  // florzinhas no chão
+  for(const fw of F.flowers){
+    const base=screenXY(fw.wx,groundY(fw.wx));
+    const fsc=fw.depth*S.zoom*sc*0.68;
+    const strokes=fw.fl; const nrev=strokes.length*fw.p;
+    ctx.save(); ctx.translate(base.x,base.y);
+    for(let i=0;i<strokes.length;i++){
+      const local=clamp(nrev-i,0,1); if(local<=0)break;
+      const pts=strokes[i].pts.map(p=>({x:p.x*fsc,y:p.y*fsc}));
+      sketchPoly(pts,Math.max(0.7,strokes[i].w*fsc),0.7,local,fw.seed+i*7);
+    }
+    ctx.restore();
+  }
+}
+// a cor de aquarela invadindo o mundo aos poucos (multiply: tinge o branco, mantém a tinta)
+function drawColor(){
+  const F=S.forest; if(!F || S.paint<=0) return;
+  const p=S.paint, sc=relScale();
+  ctx.save();
+  ctx.globalCompositeOperation='multiply';
+  // céu inteiro (gradiente suave azul->lavanda->pêssego)
+  const sa=clamp(p/0.55,0,1);
+  let g=ctx.createLinearGradient(0,0,0,H*0.8);
+  g.addColorStop(0,'rgba(150,178,212,'+0.34*sa+')');
+  g.addColorStop(0.55,'rgba(198,180,212,'+0.20*sa+')');
+  g.addColorStop(1,'rgba(244,212,178,'+0.06*sa+')');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H*0.82);
+  // chão verde subindo de baixo
+  const ga=clamp((p-0.12)/0.55,0,1);
+  g=ctx.createLinearGradient(0,H*0.6,0,H);
+  g.addColorStop(0,'rgba(168,194,148,0)');
+  g.addColorStop(1,'rgba(138,176,118,'+0.36*ga+')');
+  ctx.fillStyle=g; ctx.fillRect(0,H*0.58,W,H*0.42);
+  // manchas soltas de cor (textura)
+  for(const w of F.splotches){
+    const a=clamp((p-w.delay)/0.5,0,1)*w.maxA; if(a<=0)continue;
+    const x=w.x*W, y=w.y*H, r=w.r*Math.max(W,H);
+    const rg=ctx.createRadialGradient(x,y,0,x,y,r);
+    rg.addColorStop(0,w.col+a+')'); rg.addColorStop(1,w.col+'0)');
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
+  }
+  // coroas verdes nas árvores (acompanham o crescimento)
+  for(const tr of F.trees){
+    const a=clamp((p-0.1)/0.5,0,1)*Math.min(1,tr.p)*0.5; if(a<=0)continue;
+    const base=screenXY(tr.wx,groundY(tr.wx)); const tsc=tr.depth*S.zoom*sc*0.8;
+    const cx=base.x, cy=base.y-48*tsc, r=46*tsc;
+    const rg=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+    rg.addColorStop(0,tr.col+a+')'); rg.addColorStop(1,tr.col+'0)');
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fill();
+  }
+  // dabs quentes nas flores
+  for(const fw of F.flowers){
+    const a=clamp((p-0.25)/0.5,0,1)*Math.min(1,fw.p)*0.6; if(a<=0)continue;
+    const base=screenXY(fw.wx,groundY(fw.wx)); const fsc=fw.depth*S.zoom*sc*0.68;
+    const cx=base.x, cy=base.y-26*fsc, r=15*fsc;
+    const rg=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+    rg.addColorStop(0,fw.col+a+')'); rg.addColorStop(1,fw.col+'0)');
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   UI (botões desenhados)
+   ============================================================ */
+function chevron(x,y,r,dir,a){ // dir:1 direita,-1 esq, 0 baixo
+  ctx.strokeStyle=INK+a+')'; ctx.lineWidth=2.4*relScale(); ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath();
+  if(dir===0){ ctx.moveTo(x-r*0.5,y-r*0.3); ctx.lineTo(x,y+r*0.4); ctx.lineTo(x+r*0.5,y-r*0.3); }
+  else { ctx.moveTo(x-dir*r*0.3,y-r*0.5); ctx.lineTo(x+dir*r*0.3,y); ctx.lineTo(x-dir*r*0.3,y+r*0.5); }
+  ctx.stroke();
+}
+function drawUI(){
+  const sc=relScale();
+  const safeB=24; // margem segura inferior
+  // mute (canto sup. direito)
+  buttons.mute={x:W-26*sc-10,y:30*sc+10,r:22*sc};
+  ctx.globalAlpha=0.55; ctx.font=(20*sc)+"px serif"; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=INK+'0.8)'; ctx.fillText(muted?'🔇':'🔊',buttons.mute.x,buttons.mute.y); ctx.globalAlpha=1;
+
+  if(S.phase==='start') return;
+
+  // botões andar
+  if(S.canMove){
+    const by=H-safeB-46*sc, r=40*sc;
+    buttons.left={x:46*sc+12,y:by,r}; buttons.right={x:W-46*sc-12,y:by,r};
+    [['left',-1],['right',1]].forEach(([k,d])=>{
+      const b=buttons[k]; const pressed=(S.moveDir===d);
+      ctx.globalAlpha=pressed?0.85:0.42;
+      ctx.beginPath(); ctx.strokeStyle=INK+'0.4)'; ctx.lineWidth=1.4*sc; ctx.arc(b.x,b.y,r,0,TAU); ctx.stroke();
+      chevron(b.x,b.y,r*0.5,d,pressed?0.9:0.55); ctx.globalAlpha=1;
+    });
+  } else { buttons.left=null; buttons.right=null; }
+
+  // seta prosseguir
+  if(S.text && S.text.done && !S.text.noProceed){
+    const y=H-safeB-44*sc; buttons.proceed={x:W*0.5,y,r:34*sc};
+    const pulse=0.6+0.3*Math.sin(S.t*3);
+    ctx.globalAlpha=pulse; chevron(W*0.5,y,18*sc,0,0.9);
+    ctx.globalAlpha=0.5; ctx.font="italic "+(15*sc)+"px 'Cormorant Garamond',serif"; ctx.fillStyle=INK+'0.7)';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('prosseguir',W*0.5,y-26*sc);
+    ctx.globalAlpha=1;
+  } else buttons.proceed=null;
+}
+function drawStart(){
+  paper();
+  const sc=relScale();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=INK+'0.85)'; ctx.font="italic "+textFontPx()*1.0+"px 'Cormorant Garamond',serif";
+  ctx.fillText('uma arte que lembra voce', W*0.5, H*0.42);
+  // botão começar (centralizado, sem a menina)
+  const bw=Math.min(W*0.62,180*sc), bh=58*sc, bx=W*0.5, by=H*0.54;
+  buttons.start={x:bx,y:by,r:Math.max(bw,bh)*0.5};
+  ctx.strokeStyle=INK+'0.6)'; ctx.lineWidth=1.6*sc;
+  ctx.beginPath(); ctx.ellipse(bx,by,bw*0.5,bh*0.5,0,0,TAU); ctx.stroke();
+  ctx.fillStyle=INK+'0.9)'; ctx.font="600 "+(26*sc)+"px 'Caveat',cursive";
+  ctx.fillText('começar', bx, by+1);
+}
+
+/* ============================================================
+   UPDATE
+   ============================================================ */
+let last=performance.now();
+function update(dt){
+  S.t+=dt;
+  if(S.hintT>0 && S.moveDir===0) S.hintT-=dt;   // a dica some em 5s (ou some quando ela anda)
+  else if(S.moveDir!==0) S.hintT=0;
+  // movimento
+  if(S.canMove && S.moveDir!==0){
+    S.player.x+=S.moveDir*WALK_SPEED*dt;
+    S.player.dir=S.moveDir>0?1:-1;
+    S.player.moving=true;
+    S.player.anim+=dt*9;
+  } else { S.player.moving=false; }
+  S.player.y=groundY(S.player.x);
+
+  // máquina de escrever
+  if(S.text){
+    if(!S.text.done){
+      S.text.shown+=dt*16;
+      if(S.text.shown>=S.text.total){S.text.shown=S.text.total;S.text.done=true;}
+      // auto-scroll acompanhando a escrita
+      const linesShown=S.text.lines.filter(l=>l.cum<S.text.shown).length;
+      const want=Math.max(0,(linesShown*S.text._lh)-(S.text._areaBot-S.text._areaTop)+S.text._lh*2);
+      S.text.scroll=clamp(Math.max(S.text.scroll,want),0,S.text.maxScroll);
+    }
+  }
+
+  // ----- triggers por fase -----
+  switch(S.phase){
+    case 'intro':
+      if(introDone){ S.phase='introOut'; S.introT=0; }
+      break;
+    case 'introOut':
+      S.introT+=dt;
+      if(S.introT>=0.6){ S.phase='walk1'; S.canMove=true; S.hintT=5; }
+      break;
+    case 'walk1':
+      if(S.player.x>=S.anchorX+D1){ S.phase='flowerIn'; spawnFlower(); }
+      break;
+    case 'flowerIn':{
+      const f=S.flower; f.p=clamp(f.p+dt*0.45,0,1); f.prog=clamp(f.prog+dt*0.7,0,1);
+      if(f.p>=1 && f.prog>=1 && !f.arrived){ f.arrived=true; f._hold=0; }
+      if(f.arrived){ f._hold+=dt; f.alpha=clamp(1-(f._hold-0.5)/0.6,0,1);
+        if(f._hold>0.5){ // entrega -> texto
+          showText('flor',{lockMove:true,onProceed:()=>{ S.flower=null; S.anchorX=S.player.x; S.phase='walk2'; S.canMove=true; }});
+          S.phase='text1';
+        }}
+      break;}
+    case 'text1': break;
+    case 'walk2':
+      if(S.player.x>=S.anchorX+D2){ spawnEyes(); }
+      break;
+    case 'eyes':{
+      S.eyesT+=dt;
+      S.eyesAlpha=clamp(S.eyesT<3.6? S.eyesT/1.2 : (4.8-S.eyesT)/1.2 ,0,1); // entra e some
+      for(const e of S.eyes){ if(S.eyesT>e.delay) e.open=clamp(e.open+dt*1.1,0,1); }
+      if(S.eyesT>=4.9){ S.eyes=[]; showText('olhos',{lockMove:true,onProceed:()=>{ S.anchorX=S.player.x; S.phase='walk3'; S.canMove=true; }}); S.phase='text2'; }
+      break;}
+    case 'text2': break;
+    case 'walk3':
+      if(S.player.x>=S.anchorX+D3 && S.stairsStartX===Infinity){ startStairs(); }
+      break;
+    case 'stairs':
+      if(S.player.x>=S.stairsStartX+24 && !S.text){
+        showText('escada',{lockMove:false,onProceed:()=>{ S.stairsEndX=S.player.x; S.anchorX=S.player.x; S.phase='walk4'; }});
+      }
+      break;
+    case 'walk4':
+      if(S.player.x>=S.anchorX+D4){ startForest(); }
+      break;
+    case 'forest':{
+      const F=S.forest; F.t+=dt;
+      // zoom in + pan revelando a mata à frente
+      const k=clamp(F.t/F.dur,0,1); const e=k*k*(3-2*k);
+      S.zoom=lerp(1,1.32,e); S.camOffX=lerp(0,150,e);
+      for(const tr of F.trees){ if(F.t>tr.delay) tr.p=clamp(tr.p+dt*0.55,0,1); }
+      for(const fw of F.flowers){ if(F.t>fw.delay) fw.p=clamp(fw.p+dt*0.9,0,1); }
+      // a cor vai sendo "pintada" aos poucos, junto com a mata
+      if(F.t>1.2) S.paint=clamp(S.paint+dt/8.5,0,1);
+      if(F.t>F.dur+0.6 && !S.text){ showText('floresta',{lockMove:true,noProceed:true}); S.phase='end'; }
+      break;}
+    case 'end': S.paint=clamp(S.paint+dt/8.5,0,1); break;
+  }
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+function render(){
+  if(S.phase==='start'){ drawStart(); drawUI(); return; }
+  if(S.phase==='intro'){
+    paper(); drawIntroVideo(1);
+    ctx.globalAlpha=0.45; ctx.fillStyle=INK+'0.6)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font="italic "+(14*relScale())+"px 'Cormorant Garamond',serif";
+    ctx.fillText('toque pra pular', W*0.5, H-30*relScale()); ctx.globalAlpha=1;
+    drawUI(); return;
+  }
+  paper();
+  drawParts(frameDt);            // partículas no fundo (dt real, em segundos)
+  // mundo
+  drawGround();
+  if(S.phase==='forest'||S.phase==='end') drawForest();
+  drawFlower();
+  drawPlayer();
+  // a cor de aquarela sendo pintada por cima (multiply), no fim
+  if(S.phase==='forest'||S.phase==='end') drawColor();
+  // olhos por cima (fundo encima encarando)
+  if(S.eyes.length){ for(const e of S.eyes) drawEye(e,S.eyesAlpha*0.85); }
+  // texto
+  if(S.text) drawText();
+  // dica piscando logo após a intro (andar pra direita)
+  if(S.hintT>0 && !S.text){
+    const blink=0.35+0.5*(0.5+0.5*Math.sin(S.t*4.5));
+    ctx.globalAlpha=clamp(blink,0,1)*clamp(S.hintT,0,1);
+    ctx.fillStyle=INK+'0.9)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font="600 "+(22*relScale())+"px 'Caveat',cursive";
+    ctx.fillText('ande para a direita  →', W*0.5, H*0.30);
+    ctx.globalAlpha=1;
+  }
+  // saída da intro: vídeo desvanece sobre a cena já montada
+  if(S.phase==='introOut') drawIntroVideo(1-clamp(S.introT/0.6,0,1));
+  drawUI();
+}
+
+let frameDt=0.016;
+function frame(now){
+  let dt=(now-last)/1000; last=now; if(dt>0.05)dt=0.05;
+  frameDt=dt;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ============================================================
+   RESIZE / BOOT
+   ============================================================ */
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2.5);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=W*DPR; cv.height=H*DPR; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if(S.text) wrapActiveText();
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',()=>setTimeout(resize,200));
+// reerguer áudio ao voltar pro app
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ if(audio&&audio.paused&&!muted)audio.play().catch(()=>{}); if(actx&&actx.state==='suspended')actx.resume(); }});
+
+resize(); initParts(); last=performance.now(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
