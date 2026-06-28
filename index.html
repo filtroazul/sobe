@@ -426,12 +426,6 @@ function drawText(){
     y+=lh;
   }
   ctx.restore();
-  // sombra de "fim de página" se dá pra rolar
-  if(t.maxScroll>4 && t.scroll<t.maxScroll-2){
-    const g=ctx.createLinearGradient(0,t._areaBot-26,0,t._areaBot+6);
-    g.addColorStop(0,'rgba(246,243,236,0)'); g.addColorStop(1,'rgba(246,243,236,0.95)');
-    ctx.fillStyle=g; ctx.fillRect(0,t._areaBot-26,W,34);
-  }
 }
 
 /* ============================================================
